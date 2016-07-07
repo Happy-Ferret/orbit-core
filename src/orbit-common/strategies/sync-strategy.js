@@ -1,8 +1,7 @@
 export default class SyncStrategy {
-  constructor({ coordinator, sourceNode, targetNode, blocking, autoActivate }) {
-    this.coordinator = coordinator;
-    this.sourceNode = coordinator.nodes[sourceNode];
-    this.targetNode = coordinator.nodes[targetNode];
+  constructor({ sourceNode, targetNode, blocking, autoActivate }) {
+    this.sourceNode = sourceNode;
+    this.targetNode = targetNode;
     this.blocking = blocking;
 
     if (autoActivate || autoActivate === undefined) {
@@ -12,39 +11,22 @@ export default class SyncStrategy {
 
   activate() {
     const { sourceNode, targetNode } = this;
-    const target = targetNode.pickableSource;
 
-    this.eventListeners = {};
+    this.eventListener = (transform) => {
+      const promise = targetNode.sync([transform]);
 
-    Object.keys(sourceNode.sources).forEach(name => {
-      const source = sourceNode.sources[name];
+      if (this.blocking) {
+        return promise;
+      }
+    };
 
-      const listener = (transform) => {
-        const promise = this.coordinator.queueTransform(target, transform);
-
-        if (this.blocking) {
-          return promise;
-        }
-      };
-
-      source.on('transform', listener);
-
-      this.eventListeners[name] = listener;
-    });
+    sourceNode.on('transform', this.eventListener);
   }
 
   deactivate() {
-    const { sourceNode, eventListeners } = this;
-
-    if (eventListeners) {
-      Object.keys(eventListeners).forEach(name => {
-        const source = sourceNode.sources[name];
-        const listener = eventListeners[name];
-
-        source.off('transform', listener);
-      });
-
-      delete this.eventListeners;
+    if (this.eventListener) {
+      this.sourceNode.off('transform', this.eventListener);
+      delete this.eventListener;
     }
   }
 }

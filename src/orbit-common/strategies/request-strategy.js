@@ -1,17 +1,11 @@
-import Orbit from 'orbit/main';
-
 export default class RequestStrategy {
-  constructor({ coordinator, sourceNode, targetNode, sourceEvent, targetRequest, syncResults, blocking, autoActivate }) {
-    this.coordinator = coordinator;
-    this.sourceNode = coordinator.nodes[sourceNode];
-    this.targetNode = coordinator.nodes[targetNode];
+  constructor({ sourceNode, targetNode, sourceEvent, targetRequest, syncResults, blocking, autoActivate }) {
+    this.sourceNode = sourceNode;
+    this.targetNode = targetNode;
     this.sourceEvent = sourceEvent;
     this.targetRequest = targetRequest;
     this.syncResults = syncResults;
     this.blocking = blocking;
-
-    this.source = coordinator.sourceForRequestEvent(this.sourceNode, sourceEvent);
-    this.target = coordinator.sourceForRequest(this.targetNode, targetRequest);
 
     if (autoActivate || autoActivate === undefined) {
       this.activate();
@@ -19,15 +13,13 @@ export default class RequestStrategy {
   }
 
   activate() {
-    const { coordinator, source, target, sourceEvent, targetRequest, syncResults, blocking } = this;
+    const { sourceNode, targetNode, sourceEvent, targetRequest, syncResults, blocking } = this;
 
-    const eventListener = (request) => {
-      const promise = coordinator.queueRequest(target, targetRequest, request)
+    this.eventListener = (request) => {
+      const promise = targetNode.request(targetRequest, request)
         .then(result => {
-          if (result && syncResults) {
-            return result.reduce((chain, t) => {
-              return chain.then(() => coordinator.queueTransform(source, t));
-            }, Orbit.Promise.resolve());
+          if (syncResults) {
+            return sourceNode.sync(result);
           }
         });
 
@@ -36,16 +28,12 @@ export default class RequestStrategy {
       }
     };
 
-    source.on(sourceEvent, eventListener);
-
-    this.eventListener = eventListener;
+    sourceNode.on(sourceEvent, this.eventListener);
   }
 
   deactivate() {
-    const { source, sourceEvent, eventListener } = this;
-
-    if (eventListener) {
-      source.off(sourceEvent, eventListener);
+    if (this.eventListener) {
+      this.sourceNode.off(this.sourceEvent, this.eventListener);
       delete this.eventListener;
     }
   }

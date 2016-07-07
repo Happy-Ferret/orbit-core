@@ -1,7 +1,7 @@
 import Orbit from 'orbit/main';
 import Coordinator from 'orbit-common/coordinator';
-import SyncStrategy from 'orbit-common/strategies/sync-strategy';
-import RequestStrategy from 'orbit-common/strategies/request-strategy';
+// import SyncStrategy from 'orbit-common/strategies/sync-strategy';
+// import RequestStrategy from 'orbit-common/strategies/request-strategy';
 import Store from 'orbit-common/store';
 import JsonApiSource from 'orbit-common/jsonapi-source';
 import LocalStorageSource from 'orbit-common/local-storage-source';
@@ -32,9 +32,9 @@ module('Integration - Coordinator', function(hooks) {
   let localStorage;
   let jsonApiSource;
   let coordinator;
-  let updateRequestStrategy;
-  let queryRequestStrategy;
-  let localBackupStrategy;
+  // let updateRequestStrategy;
+  // let queryRequestStrategy;
+  // let localBackupStrategy;
 
   hooks.beforeEach(function() {
     fetchStub = sinon.stub(Orbit, 'fetch');
@@ -45,50 +45,57 @@ module('Integration - Coordinator', function(hooks) {
     store = new Store({ schema: planetsSchema, keyMap });
     localStorage = new LocalStorageSource({ schema: planetsSchema, keyMap });
 
-    coordinator.addNode('master', {
+    let master = coordinator.addNode('master', {
       sources: [store]
     });
 
-    coordinator.addNode('backup', {
+    let backup = coordinator.addNode('backup', {
       sources: [localStorage]
     });
 
-    coordinator.addNode('upstream', {
+    let upstream = coordinator.addNode('upstream', {
       sources: [jsonApiSource]
     });
 
-    updateRequestStrategy = new RequestStrategy({
-      coordinator,
-      sourceNode: 'master',
-      targetNode: 'upstream',
-      sourceEvent: 'beforeUpdate',
-      targetRequest: 'push',
-      blocking: true,
-      syncResults: true
-    });
+    master.on('beforeUpdate',
+      transform => upstream.request('push', transform)
+                           .then(result => master.sync(result)));
 
-    queryRequestStrategy = new RequestStrategy({
-      coordinator,
-      sourceNode: 'master',
-      targetNode: 'upstream',
-      sourceEvent: 'beforeQuery',
-      targetRequest: 'pull',
-      blocking: true,
-      syncResults: true
-    });
+    master.on('beforeQuery',
+      query => upstream.request('pull', query)
+                       .then(result => master.sync(result)));
 
-    localBackupStrategy = new SyncStrategy({
-      coordinator,
-      sourceNode: 'master',
-      targetNode: 'backup',
-      blocking: false
-    });
+    master.on('transform', transform => backup.sync(transform));
+
+    // updateRequestStrategy = new RequestStrategy({
+    //   sourceNode: master,
+    //   targetNode: upstream,
+    //   sourceEvent: 'beforeUpdate',
+    //   targetRequest: 'push',
+    //   blocking: true,
+    //   syncResults: true
+    // });
+
+    // queryRequestStrategy = new RequestStrategy({
+    //   sourceNode: master,
+    //   targetNode: upstream,
+    //   sourceEvent: 'beforeQuery',
+    //   targetRequest: 'pull',
+    //   blocking: true,
+    //   syncResults: true
+    // });
+
+    // localBackupStrategy = new SyncStrategy({
+    //   sourceNode: master,
+    //   targetNode: backup,
+    //   blocking: false
+    // });
   });
 
   hooks.afterEach(function() {
-    updateRequestStrategy.deactivate();
-    queryRequestStrategy.deactivate();
-    localBackupStrategy.deactivate();
+    // updateRequestStrategy.deactivate();
+    // queryRequestStrategy.deactivate();
+    // localBackupStrategy.deactivate();
 
     localStorage.reset();
 

@@ -21,24 +21,24 @@ export default class TransformLog {
     return this._log.length;
   }
 
-  before(transformId) {
+  before(transformId, relativePosition = 0) {
     const index = this._indexOf(transformId);
-    return this._log.slice(0, index);
+    return this._log.slice(0, index + relativePosition);
   }
 
-  after(transformId) {
+  after(transformId, relativePosition = 0) {
     const index = this._indexOf(transformId);
-    return this._log.slice(index + 1);
+    return this._log.slice(index + 1 + relativePosition);
   }
 
-  truncate(transformId) {
+  truncate(transformId, relativePosition = 0) {
     const index = this._indexOf(transformId);
-    this._log = this._log.slice(index);
+    this._log = this._log.slice(index + relativePosition);
   }
 
-  rollback(transformId) {
+  rollback(transformId, relativePosition = 0) {
     const index = this._indexOf(transformId);
-    this._log.length = index + 1;
+    this._log.length = index + 1 + relativePosition;
   }
 
   clear() {

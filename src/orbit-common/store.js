@@ -121,15 +121,16 @@ export default class Store extends Source {
 
    @method rollback
    @param {string} transformId - The ID of the transform to roll back to
+   @param {number} relativePosition - A positive or negative integer to specify a position relative to `transformId`
    @returns {undefined}
   */
-  rollback(transformId) {
+  rollback(transformId, relativePosition = 0) {
     this.transformLog
-      .after(transformId)
+      .after(transformId, relativePosition)
       .reverse()
       .forEach(id => this._rollbackTransform(id));
 
-    this.transformLog.rollback(transformId);
+    this.transformLog.rollback(transformId, relativePosition);
   }
 
   /**

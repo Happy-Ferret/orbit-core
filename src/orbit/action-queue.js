@@ -57,6 +57,19 @@ export default class ActionQueue {
     this._actions = [];
   }
 
+  get length() {
+    return this._actions.length;
+  }
+
+  get current() {
+    return this._actions[0];
+  }
+
+  get processing() {
+    const current = this.current;
+    return current && current.started && !current.settled;
+  }
+
   push(_action) {
     let action = Action.from(_action);
 
@@ -67,20 +80,37 @@ export default class ActionQueue {
     return action;
   }
 
+  retry() {
+    assert('ActionQueue#retry can only be called when the queue is not processing', !this.processing);
+
+    this.current.reset();
+
+    return this.process();
+  }
+
+  skip() {
+    assert('ActionQueue#skip can only be called when the queue is not processing', !this.processing);
+
+    this._actions.shift();
+
+    return this.process();
+  }
+
   clear() {
-    assert('ActionQueue#clear can only be called when the queue is not being processed', !this._resolution);
+    console.log('clear', this.processing);
+    assert('ActionQueue#clear can only be called when the queue is not processing', !this.processing);
 
     this._actions = [];
   }
 
   shift() {
-    assert('ActionQueue#shift can only be called when the queue is not being processed', !this._resolution);
+    assert('ActionQueue#shift can only be called when the queue is not processing', !this.processing);
 
     return this._actions.shift();
   }
 
   unshift(_action) {
-    assert('ActionQueue#unshift can only be called when the queue is not being processed', !this._resolution);
+    assert('ActionQueue#unshift can only be called when the queue is not processing', !this.processing);
 
     let action = Action.from(_action);
 
@@ -90,23 +120,23 @@ export default class ActionQueue {
   }
 
   process() {
-    if (!this._resolution) {
-      if (this._actions.length === 0) {
-        this._resolution = Orbit.Promise.resolve();
-      } else {
-        this._resolution = new Orbit.Promise((resolve, reject) => {
-          this.one('complete', () => resolve());
+    let resolution = this._resolution;
 
-          this.one('fail', (action, e) => {
-            reject(e);
-          });
+    if (!resolution) {
+      if (this._actions.length === 0) {
+        resolution = Orbit.Promise.resolve();
+      } else {
+        this._resolution = resolution = new Orbit.Promise((resolve, reject) => {
+          this.one('complete', () => resolve());
+          this.one('fail', (action, e) => reject(e));
         });
 
+        this._processing = true;
         this._settleEach();
       }
     }
 
-    return this._resolution;
+    return resolution;
   }
 
   _settleEach() {

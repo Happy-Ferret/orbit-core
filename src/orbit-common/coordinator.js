@@ -1,133 +1,146 @@
+import Orbit from 'orbit';
 import { assert } from 'orbit/lib/assert';
+import { isArray } from 'orbit/lib/objects';
 import ActionQueue from 'orbit/action-queue';
 
-export default class Coordinator {
-  constructor() {
-    this.sources = {};
-    this.nodes = {};
+class Node {
+  constructor(coordinator, name, options = {}) {
+    this.coordinator = coordinator;
+    this.name = name;
+    this.sources = [];
 
-    this.requestQueues = {};
-    this.syncQueues = {};
-  }
+    let sources = options.sources;
+    if (sources) {
+      let sourceOptions = options.sourceOptions || {};
 
-  addNode(name, options = {}) {
-    assert(`Node '${name}' already exists.`, !this.nodes[name]);
-
-    options.sourceOptions = options.sourceOptions || {};
-
-    const node = {
-      name,
-      sources: {}
-    };
-
-    if (options.sources) {
-      options.sources.forEach(source => {
-        this.addSource(node, source, options.sourceOptions[source.name]);
+      sources.forEach(source => {
+        this.addSource(source, sourceOptions[source.name]);
       });
     }
-
-    this.nodes[name] = node;
-
-    return node;
   }
 
-  addSource(node, source, options = {}) {
-    assert(`A source named '${source.name}' has already been added to this coordinator.`, !this.sources[source.name]);
-    assert(`A source named '${source.name}' has already been added to node '${node.name}'.`, !node.sources[source.name]);
-
+  addSource(source, options = {}) {
     let needsRequestQueue = false;
     let needsSyncQueue = false;
 
     if (source._pushable && options.pushable !== false) {
-      assert(`A 'pushable' source has already been defined for node '${node.name}'`, !node.pushableSource);
-      node.pushableSource = source;
+      assert(`A 'pushable' source has already been defined for node '${this.name}'`, !this.pushableSource);
+      this.pushableSource = source;
       needsRequestQueue = true;
     }
 
     if (source._pullable && options.pullable !== false) {
-      assert(`A 'pullable' source has already been defined for node '${node.name}'`, !node.pullableSource);
-      node.pullableSource = source;
+      assert(`A 'pullable' source has already been defined for node '${this.name}'`, !this.pullableSource);
+      this.pullableSource = source;
       needsRequestQueue = true;
     }
 
     if (source._updatable && options.updatable !== false) {
-      assert(`An 'updatable' source has already been defined for node '${node.name}'`, !node.updatableSource);
-      node.updatableSource = source;
+      assert(`An 'updatable' source has already been defined for node '${this.name}'`, !this.updatableSource);
+      this.updatableSource = source;
       needsRequestQueue = true;
     }
 
     if (source._queryable && options.queryable !== false) {
-      assert(`A 'queryable' source has already been defined for node '${node.name}'`, !node.queryableSource);
-      node.queryableSource = source;
+      assert(`A 'queryable' source has already been defined for node '${this.name}'`, !this.queryableSource);
+      this.queryableSource = source;
       needsRequestQueue = true;
     }
 
     if (source._pickable && options.pickable !== false) {
-      assert(`A 'pickable' source has already been defined for node '${node.name}'`, !node.pickableSource);
-      node.pickableSource = source;
+      assert(`A 'pickable' source has already been defined for node '${this.name}'`, !this.pickableSource);
+      this.pickableSource = source;
       needsSyncQueue = true;
     }
 
-    node.sources[source.name] = source;
-
-    this.sources[source.name] = source;
-
     if (needsRequestQueue) {
-      this.requestQueues[source.name] = new ActionQueue();
+      this.requestQueue = new ActionQueue();
     }
 
     if (needsSyncQueue) {
-      this.syncQueues[source.name] = new ActionQueue();
+      this.syncQueue = new ActionQueue();
     }
+
+    this.sources.push(source);
   }
 
-  sourceForRequestEvent(node, event) {
-    switch (event) {
-      case 'beforeUpdate':
-      case 'update':
-        return node.updatableSource;
-
-      case 'beforeQuery':
-      case 'query':
-        return node.queryableSource;
-
-      case 'beforePush':
-      case 'push':
-        return node.pushableSource;
-
-      case 'beforePull':
-      case 'pull':
-        return node.pullableSource;
-    }
+  on(eventName, callback, binding) {
+    this._sourcesForEvent(eventName).forEach(source => {
+      source.on(eventName, callback, binding);
+    });
   }
 
-  sourceForRequest(node, request) {
-    switch (request) {
-      case 'push':
-        return node.pushableSource;
-
-      case 'pull':
-        return node.pullableSource;
-    }
+  off(eventName, callback, binding) {
+    this._sourcesForEvent(eventName).forEach(source => {
+      source.off(eventName, callback, binding);
+    });
   }
 
-  queueRequest(source, requestMethod, requestData) {
-    const queue = this.requestQueues[source.name];
+  request(method, data) {
+    const source = this._sourceForRequest(method);
 
-    const action = queue.push({
-      data: requestData,
+    const action = this.requestQueue.push({
+      data: { method, data },
       process: () => {
-        return source[requestMethod](requestData);
+        return source[method](data);
       }
     });
 
     return action.settle();
   }
 
-  queueTransform(source, transform) {
-    const queue = this.syncQueues[source.name];
+  sync(transformOrTransforms) {
+    if (isArray(transformOrTransforms)) {
+      return transformOrTransforms.reduce((chain, t) => {
+        return chain.then(() => this._enqueueTransform(t));
+      }, Orbit.Promise.resolve());
+    } else {
+      return this._enqueueTransform(transformOrTransforms);
+    }
+  }
 
-    const action = queue.push({
+  _sourceForRequestEvent(eventName) {
+    switch (eventName) {
+      case 'beforeUpdate':
+      case 'update':
+        return this.updatableSource;
+
+      case 'beforeQuery':
+      case 'query':
+        return this.queryableSource;
+
+      case 'beforePush':
+      case 'push':
+        return this.pushableSource;
+
+      case 'beforePull':
+      case 'pull':
+        return this.pullableSource;
+    }
+  }
+
+  _sourceForRequest(requestName) {
+    switch (requestName) {
+      case 'push':
+        return this.pushableSource;
+
+      case 'pull':
+        return this.pullableSource;
+    }
+  }
+
+  _sourcesForEvent(eventName) {
+    if (eventName === 'transform') {
+      return this.sources;
+    } else {
+      return [this._sourceForRequestEvent(eventName)];
+    }
+  }
+
+  _enqueueTransform(transform) {
+    const source = this.pickableSource;
+
+    const action = this.syncQueue.push({
       data: transform,
       process: () => {
         return source.pick(transform);
@@ -135,5 +148,31 @@ export default class Coordinator {
     });
 
     return action.settle();
+  }
+}
+
+///////////////////////////////////////////////////////////
+
+export default class Coordinator {
+  constructor() {
+    this._nodes = {};
+  }
+
+  addNode(name, options = {}) {
+    assert(`Node '${name}' already exists.`, !this._nodes[name]);
+
+    const node = new Node(this, name, options);
+
+    this._nodes[name] = node;
+
+    return node;
+  }
+
+  getNode(name) {
+    return this._nodes[name];
+  }
+
+  get nodes() {
+    return Object.keys(this._nodes).map(k => this._nodes[k]);
   }
 }
